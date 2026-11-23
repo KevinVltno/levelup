@@ -22,6 +22,9 @@ export type Quest = {
   remaining_seconds: number; completed_at: string | null
 }
 export type ChatMessage = { id: string; role: "user" | "assistant"; content: string }
+export type ChatThread = { id: string; title: string; updated_at: string }
+export const chatPageSize = 30
+export const chatMessagePageSize = 50
 export type Leader = { name: string; xp: number; level: number; rank: string }
 export type Pool = { id: string; name: string; category: Template["category"] | null; kind: Quest["kind"]; xp_reward: number; badge_id: string; active: boolean }
 export type Dashboard = {

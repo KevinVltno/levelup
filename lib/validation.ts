@@ -29,4 +29,8 @@ export const commandSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("savePool"), id: id.optional(), name, category: category.nullable(), kind: z.enum(kinds), reward, badge: z.string().min(1).max(80), active: z.boolean() }),
 ])
 export type Command = z.infer<typeof commandSchema>
-export const chatSchema = z.object({ message: z.string().trim().min(1).max(2000) })
+export const chatSchema = z.object({ threadId: z.uuid(), message: z.string().trim().min(1).max(2000) })
+export const chatQuerySchema = z.object({
+  threadId: z.uuid().optional(),
+  offset: z.coerce.number().int().min(0).max(100000).default(0),
+})

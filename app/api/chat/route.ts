@@ -1,18 +1,33 @@
 import { ApiError } from "@google/genai"
 import { streamCompanion } from "@/lib/gemini"
 import { authenticated, failure, logError, readBody } from "@/lib/http"
+import { chatMessagePageSize, chatPageSize } from "@/lib/model"
 import { serviceClient } from "@/lib/supabase"
-import { chatSchema } from "@/lib/validation"
+import { chatQuerySchema, chatSchema } from "@/lib/validation"
 
 export const maxDuration = 60
 const fallback = "Nara belum bisa menjawab saat ini. Coba lagi sebentar lagi."
 
-export async function GET() {
+export async function GET(request: Request) {
+  const query = chatQuerySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams))
+  if (!query.success) return failure("Permintaan riwayat tidak valid.", 400)
   const session = await authenticated()
   if (!session) return failure("Masuk untuk membuka Nara.", 401)
-  const { data, error } = await session.db.from("chat_messages").select("id,role,content").eq("user_id", session.id)
-    .order("created_at", { ascending: false }).limit(100)
-  return error ? failure("Riwayat belum dapat dimuat.", 503) : Response.json(data.reverse(), { headers: { "Cache-Control": "private, no-store" } })
+  const { threadId, offset } = query.data
+  const headers = { "Cache-Control": "private, no-store" }
+  if (threadId) {
+    const { data: thread, error: threadError } = await session.db.from("chat_threads").select("id").eq("id", threadId).maybeSingle()
+    if (threadError) return failure("Percakapan belum dapat dimuat.", 503)
+    if (!thread) return failure("Percakapan tidak tersedia.", 404)
+    const { data, error } = await session.db.from("chat_messages").select("id,role,content").eq("thread_id", threadId)
+      .order("created_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + chatMessagePageSize)
+    return error ? failure("Pesan belum dapat dimuat.", 503)
+      : Response.json({ messages: data.slice(0, chatMessagePageSize).reverse(), more: data.length > chatMessagePageSize }, { headers })
+  }
+  const { data, error } = await session.db.from("chat_threads").select("id,title,updated_at").eq("user_id", session.id)
+    .order("updated_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + chatPageSize)
+  return error ? failure("Riwayat belum dapat dimuat.", 503)
+    : Response.json({ threads: data.slice(0, chatPageSize), more: data.length > chatPageSize }, { headers })
 }
 
 export async function POST(request: Request) {
@@ -23,15 +38,19 @@ export async function POST(request: Request) {
   if (!process.env.GEMINI_API_KEY || !process.env.GEMINI_MODEL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return failure(fallback, 503)
 
   const { db, id } = session
-  const accepted = await db.rpc("accept_chat", { p_content: body.message })
+  const { threadId } = body
+  const accepted = await db.rpc("accept_chat_message", { p_thread: threadId, p_content: body.message })
   if (accepted.error) {
     logError("accept_chat", accepted.error)
-    return accepted.error.code === "P0429" ? failure(accepted.error.message, 429) : failure(fallback, 503)
+    if (accepted.error.code === "P0429") return failure(accepted.error.message, 429)
+    if (accepted.error.code === "42501") return failure("Percakapan tidak tersedia.", 404)
+    return failure(fallback, 503)
   }
   const synced = await db.rpc("sync_quests")
   if (synced.error) return failure(fallback, 503)
   const [history, profile, habits, quests] = await Promise.all([
-    db.from("chat_messages").select("role,content").eq("user_id", id).neq("id", accepted.data).order("created_at", { ascending: false }).limit(12),
+    db.from("chat_messages").select("role,content").eq("user_id", id).eq("thread_id", threadId)
+      .neq("id", accepted.data).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(12),
     db.from("profiles").select("level,rank").eq("id", id).single(),
     db.from("habits").select("name,category,streak").eq("user_id", id).is("archived_at", null).limit(12),
     db.from("user_quests").select("title,status").eq("user_id", id).gt("expires_at", synced.data).limit(10),
@@ -56,13 +75,13 @@ export async function POST(request: Request) {
           send({ text: chunk.text })
         }
         if (!text.trim()) throw new Error("Empty Gemini response")
-        const saved = await service.from("chat_messages").insert({ user_id: id, role: "assistant", content: text.slice(0, 12000) })
+        const saved = await service.from("chat_messages").insert({ user_id: id, thread_id: threadId, role: "assistant", content: text.slice(0, 12000) }).select("id").single()
         if (saved.error) {
           logError("nara_save_reply", saved.error)
           send({ error: "Balasan Nara belum tersimpan. Coba lagi sebentar lagi." })
           return
         }
-        send({ done: true })
+        send({ done: true, messageId: saved.data.id })
       } catch (error) {
         if (request.signal.aborted) return
         const status = error instanceof ApiError ? error.status : undefined
@@ -72,5 +91,5 @@ export async function POST(request: Request) {
         controller.close()
       }
     },
-  }), { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "private, no-store, no-transform", "X-Accel-Buffering": "no" } })
+  }), { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "private, no-store, no-transform", "X-Accel-Buffering": "no", "X-LevelUp-Message-Id": accepted.data } })
 }

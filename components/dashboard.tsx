@@ -8,7 +8,7 @@ import {
   Menu, Plus, Shield, Sparkles, Swords, Target, Trophy, X, Zap,
 } from "lucide-react"
 import { Brand } from "./brand"
-import { Chat } from "./chat"
+import { Chat, markNewChat } from "./chat"
 import { disconnectPush, PushSettings } from "./push-settings"
 import { HabitForm, Habits } from "./habits"
 import { Leaderboard, Progress, ProgressChart, formatNumber } from "./progress"
@@ -113,11 +113,32 @@ export function DashboardApp({ initialData, demo }: { initialData: Dashboard; de
   const [busy, setBusy] = useState(false)
   const [delta, setDelta] = useState(0)
   const [toast, setToast] = useState("")
+  const [connection, setConnection] = useState({ offline: false, reconnects: 0, pendingChat: false })
   const [modalError, setModalError] = useState("")
   const syncStart = useRef(0)
   const lock = useRef(false)
   const reminderKeys = useRef(new Set<string>())
   const dialog = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    if (demo) return
+    const wentOffline = () => {
+      markNewChat(initialData.profile.id, true)
+      setConnection((state) => ({ ...state, offline: true }))
+    }
+    const backOnline = () => {
+      markNewChat(initialData.profile.id, true)
+      setConnection((state) => ({ offline: false, reconnects: state.reconnects + 1, pendingChat: true }))
+    }
+    const timer = window.setTimeout(() => { if (!navigator.onLine) wentOffline() }, 0)
+    window.addEventListener("offline", wentOffline)
+    window.addEventListener("online", backOnline)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener("offline", wentOffline)
+      window.removeEventListener("online", backOnline)
+    }
+  }, [demo, initialData.profile.id])
 
   const replace = useCallback((next: Dashboard) => {
     syncStart.current = performance.now()
@@ -307,7 +328,8 @@ export function DashboardApp({ initialData, demo }: { initialData: Dashboard; de
           {view === "quest" && <QuestList quests={allQuestRows} delta={delta} expanded busy={busy} onQuest={(q) => open(q.id)} onView={() => undefined} />}
           {view === "progres" && <Progress data={data} />}
           {view === "leaderboard" && <Leaderboard data={data} />}
-          {view === "companion" && <Chat demo={demo} />}
+          {view === "companion" && <Chat key={connection.reconnects} demo={demo} userId={data.profile.id} offline={connection.offline}
+            reconnected={connection.pendingChat} onConversationStarted={() => setConnection((state) => ({ ...state, pendingChat: false }))} />}
         </>}
       </main>
     </div>
