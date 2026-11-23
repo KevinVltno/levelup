@@ -74,6 +74,8 @@ Muat ulang dashboard untuk membuka **Panel admin**. Hanya pengaturan Supabase ya
 3. Ubah Supabase Auth **Site URL** untuk proyek produksi ke domain HTTPS Vercel atau domain kustom. Tambahkan URL konfirmasi ke pengaturan Redirect URLs bila diperlukan. Pastikan Cron aktif pada database produksi.
 4. Daftar dengan akun pengujian, lalu cek verifikasi email, pencatatan habit, timer setelah refresh, balasan Nara, dan akses admin.
 
+Login LevelUp memakai `LOGIN_LIMIT_SECRET` (nilai acak yang stabil, misalnya 32 byte dari generator kriptografi) dan `SUPABASE_SERVICE_ROLE_KEY` di server. Jalankan migrasi login sebelum deploy. Lima kegagalan dalam 30 menit mengunci kombinasi email dan koneksi selama 30 menit. Login berhasil mereset kegagalan untuk kombinasi tersebut. Pada Vercel, alamat koneksi diambil dari header terkelola platform. Saat alamat koneksi tidak tersedia, pembatas memakai email saja.
+
 ## Pengingat Web Push
 
 Jalankan semua migrasi di folder `supabase/migrations/` sesuai urutan. Buat pasangan VAPID dengan `npx web-push generate-vapid-keys`. Setel `PUSH_PUBLIC_KEY`, `PUSH_PRIVATE_KEY`, `PUSH_SUBJECT` (URL HTTPS aplikasi), dan `PUSH_CRON_SECRET` (token acak) di environment server. Di Supabase Vault, simpan URL HTTPS rute `/api/push/reminders` dengan nama `push_cron_url` dan token yang sama dengan nama `push_cron_secret`. Jalankan `supabase/push-cron.sql` setelah itu.

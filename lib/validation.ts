@@ -13,7 +13,7 @@ const schedule = {
 }
 const credentials = { email: z.email().max(254), password: z.string().min(8).max(72) }
 export const authSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("login"), ...credentials }),
+  z.object({ action: z.literal("login"), ...credentials, password: z.string().min(1).max(72) }),
   z.object({ action: z.literal("register"), ...credentials, name: name.max(60) }),
   z.object({ action: z.literal("logout") }),
 ])
