@@ -68,11 +68,10 @@ export async function POST(request: Request) {
       let text = ""
       const send = (event: object) => controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"))
       try {
-        const stream = await streamCompanion(contents, { profile: profile.data, habits: habits.data, quests: quests.data }, abort)
+        const stream = streamCompanion(contents, { profile: profile.data, habits: habits.data, quests: quests.data }, abort)
         for await (const chunk of stream) {
-          if (!chunk.text) continue
-          text += chunk.text
-          send({ text: chunk.text })
+          text += chunk
+          send({ text: chunk })
         }
         if (!text.trim()) throw new Error("Empty Gemini response")
         const saved = await service.from("chat_messages").insert({ user_id: id, thread_id: threadId, role: "assistant", content: text.slice(0, 12000) }).select("id").single()
@@ -86,7 +85,8 @@ export async function POST(request: Request) {
         if (request.signal.aborted) return
         const status = error instanceof ApiError ? error.status : undefined
         console.error("nara_gemini", status ?? (abort.aborted ? "timeout" : "stream_failed"))
-        send({ error: status === 429 ? "Kuota Gemini sedang habis. Coba lagi setelah kuota tersedia." : fallback })
+        send({ error: status === 429 ? "Kuota Gemini sedang habis. Coba lagi setelah kuota tersedia."
+          : status === 503 || status === 502 || status === 504 ? "Gemini sedang sibuk. Pesanmu tersimpan. Coba lagi sebentar lagi." : fallback })
       } finally {
         controller.close()
       }
